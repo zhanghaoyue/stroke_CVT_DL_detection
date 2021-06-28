@@ -198,7 +198,7 @@ def train(**kwargs):
                 if lr_change == 2:
                     break
 
-            net.training = True
+            net.train()
 
             for i, return_list in tqdm(enumerate(train_batch)):
                 case_name, x, y = return_list
@@ -208,14 +208,17 @@ def train(**kwargs):
 
                 if e == 0 and i == 0:
                     print('input size:', im.shape)
-
                 # forward
-                classification_loss, regression_loss = net([im, label])
+                if opt.model[-4:] == 'rcnn':
+                    loss_dict = net(im, label)
+                    loss = sum(ls for ls in loss_dict.values())
+                else:
+                    classification_loss, regression_loss = net([im, label])
 
-                classification_loss = classification_loss.mean()
-                regression_loss = regression_loss.mean()
+                    classification_loss = classification_loss.mean()
+                    regression_loss = regression_loss.mean()
 
-                loss = classification_loss + regression_loss
+                    loss = classification_loss + regression_loss
 
                 if bool(loss == 0):
                     continue
