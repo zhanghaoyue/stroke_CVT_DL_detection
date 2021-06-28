@@ -28,9 +28,9 @@ def get_model():
 
     elif opt.model[-4:] == 'rcnn':
         if opt.model == 'faster_rcnn':
-            net = net.fasterrcnn_resnet50_fpn(num_classes=opt.label_length, pretrained=opt.pre_train)
+            net = torchvision.models.detection.fasterrcnn_resnet50_fpn(num_classes=opt.label_length, pretrained=opt.pre_train)
         elif opt.model == 'mask_rcnn':
-            net = net.maskrcnn_resnet50_fpn(num_classes=opt.label_length, pretrained=opt.pre_train)
+            net = torchvision.models.detection.maskrcnn_resnet50_fpn(num_classes=opt.label_length, pretrained=opt.pre_train)
 
     return net
 
