@@ -29,11 +29,14 @@ from copy import deepcopy
 import shutil
 import cv2
 import warnings
+
 warnings.filterwarnings("ignore")
 
 import resource
+
 rlimit = resource.getrlimit(resource.RLIMIT_NOFILE)
 resource.setrlimit(resource.RLIMIT_NOFILE, (2000, rlimit[1]))
+
 
 # train 应该是一个不受任务类型，数据类型，网络结构影响的通用文件
 # 所有与上述内容相关的部分，都应该封装为模块
@@ -111,7 +114,6 @@ def train(**kwargs):
         # #print(.shape)
         # return
 
-
         ###### 设置优化器相关参数 ######
         # 优化器
         lr = opt.lr
@@ -153,7 +155,7 @@ def train(**kwargs):
         train_data_num = len(train_set.img_list)
         train_batch = Data.DataLoader(dataset=train_set, batch_size=opt.train_bs, shuffle=True, \
                                       num_workers=opt.num_workers, worker_init_fn=worker_init_fn, \
-                                      drop_last=True, collate_fn = non_model.num_collate)
+                                      drop_last=True, collate_fn=non_model.num_collate)
         print('load train data done, num =', train_data_num)
 
         # 定义 val set
@@ -176,7 +178,7 @@ def train(**kwargs):
 
         ###### Start Training ######
         for e in range(opt.epoch):
-            tmp_epoch = e+opt.start_epoch
+            tmp_epoch = e + opt.start_epoch
             print('====================== Folder %s Epoch %s ========================' % (k, tmp_epoch))
 
             # 当前 epoch 的 lr
@@ -184,7 +186,7 @@ def train(**kwargs):
 
             # 如果使用 cycle_save，在每个 cycle 开始时重置保存条件
             if opt.cycle_r > 0:
-                if e % (2*opt.Tmax) == 0:
+                if e % (2 * opt.Tmax) == 0:
                     best_net = None
                     best_metric_list = np.zeros((opt.label_length - 1))
                     best_metric = 0
@@ -201,12 +203,11 @@ def train(**kwargs):
             for i, return_list in tqdm(enumerate(train_batch)):
                 case_name, x, y = return_list
 
-
                 im = Variable(x.type(torch.FloatTensor).cuda())
                 label = Variable(y.type(torch.FloatTensor).cuda())
 
                 if e == 0 and i == 0:
-                    print('input size:',im.shape)
+                    print('input size:', im.shape)
 
                 # forward
                 classification_loss, regression_loss = net([im, label])
@@ -227,8 +228,8 @@ def train(**kwargs):
 
                 if i % 50 == 0:
                     print(
-                    'Ep: {} | Iter: {} | Cls loss: {:1.4f} | Reg loss: {:1.4f} | Running loss: {:1.4f}'.format(
-                        tmp_epoch, i, float(classification_loss), float(regression_loss), np.mean(loss_hist)))
+                        'Ep: {} | Iter: {} | Cls loss: {:1.4f} | Reg loss: {:1.4f} | Running loss: {:1.4f}'.format(
+                            tmp_epoch, i, float(classification_loss), float(regression_loss), np.mean(loss_hist)))
 
                 del classification_loss
                 del regression_loss
@@ -251,7 +252,7 @@ def train(**kwargs):
                     im = Variable(x.type(torch.FloatTensor).cuda())
 
                     if e == 0 and i == 0:
-                        print('input size:',im.shape)
+                        print('input size:', im.shape)
 
                     # forward
                     scores, labels, boxes = net(im)
@@ -288,7 +289,7 @@ def train(**kwargs):
 
                     ##################### Get annotations #####################
                     annotations = y.detach().cpu().numpy()[0]
-                    all_annotations[i] = annotations[:,:4]
+                    all_annotations[i] = annotations[:, :4]
                     ###########################################################
 
             false_positives = np.zeros((0,))
@@ -355,7 +356,7 @@ def train(**kwargs):
                     save_dict['net'] = net
                     save_dict['config_dict'] = config_dict
                     torch.save(save_dict, save_model_folder + 'K%s_%s_AP_%.4f_Pr_%.4f_Re_%.4f.pkl' %
-                                   (k, str(epoch_save).rjust(3,'0'), best_metric, precision[-1], recall[-1]))
+                               (k, str(epoch_save).rjust(3, '0'), best_metric, precision[-1], recall[-1]))
 
                     info_dict = {
                         'fp': false_positives.tolist(),
@@ -364,7 +365,7 @@ def train(**kwargs):
                         'anno': num_annotations
                     }
                     with open(save_info_folder + 'K%s_%s_AP_%.4f_Pr_%.4f_Re_%.4f.json' %
-                                   (k, str(epoch_save).rjust(3,'0'), best_metric, precision[-1], recall[-1]), 'w') as f:
+                              (k, str(epoch_save).rjust(3, '0'), best_metric, precision[-1], recall[-1]), 'w') as f:
                         json.dump(info_dict, f, indent=2)
 
                     del save_dict
@@ -383,14 +384,13 @@ def train(**kwargs):
             if before_lr != tmp_lr:
                 epoch_save = tmp_epoch
                 lr_change += 1
-                print('================== lr change to %.6f =================='%before_lr)
+                print('================== lr change to %.6f ==================' % before_lr)
 
             # 清除缓存，减少训练中内存占用
             torch.cuda.empty_cache()
+
 
 if __name__ == '__main__':
     import fire
 
     fire.Fire()
-    
-
