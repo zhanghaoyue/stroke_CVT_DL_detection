@@ -1,6 +1,7 @@
 import numpy as np
 import cv2
 import os
+import torch
 import random
 from utils import in_model
 import sys
@@ -30,12 +31,36 @@ class train_Dataset:
         img_list = [img_dict['T1'], img_dict['T2'], img_dict['FL']]
         img = np.array(img_list)
         img = img.astype('float32')
+        img = torch.tensor(img)
 
         bbox_array = img_dict['BBOX']
         annot = in_model.get_bbox(bbox_array)
         annot = annot.astype('float32')
 
-        return_list = [path_name, img, annot]
+        num_objs = annot.shape[0]
+        boxes = []
+        labels = []
+        target = {}
+        if num_objs == 0:
+            boxes = torch.zeros((0,4), dtype=torch.float32)
+            labels = torch.zeros((1,1), dtype=torch.int64)
+        else:
+            for i in range(num_objs):
+                boxes.append(annot[i][:4])
+            boxes = torch.as_tensor(boxes, dtype=torch.float32)
+            labels = torch.ones((num_objs,), dtype=torch.int64)
+        target["boxes"] = boxes
+        target["labels"] = labels
+
+        image_id = torch.tensor([idx])
+        area = (boxes[:,3]-boxes[:,1])*(boxes[:,2]-boxes[:,0])
+        iscrowd = torch.zeros((num_objs,), dtype=torch.int64)
+        
+        target["image_id"] = image_id
+        target["area"] = area
+        target["iscrowd"] = iscrowd
+
+        return_list = [path_name, img, target]
 
         return return_list
 
@@ -58,12 +83,37 @@ class val_Dataset:
         img_list = [img_dict['T1'], img_dict['T2'], img_dict['FL']]
         img = np.array(img_list)
         img = img.astype('float32')
+        img = torch.tensor(img)
 
         bbox_array = img_dict['BBOX']
         annot = in_model.get_bbox(bbox_array)
         annot = annot.astype('float32')
 
-        return_list = [path_name, img, annot]
+        num_objs = annot.shape[0]
+        boxes = []
+        labels = []
+        target = {}
+
+        if num_objs == 0:
+            boxes = torch.zeros((0,4), dtype=torch.float32)
+            labels = torch.zeros((1,1), dtype=torch.int64)
+        else:
+            for i in range(num_objs):
+                boxes.append(annot[i][:4])
+            boxes = torch.as_tensor(boxes, dtype=torch.float32)
+            labels = torch.ones((num_objs,), dtype=torch.int64)
+        target["boxes"] = boxes
+        target["labels"] = labels
+            
+        image_id = torch.tensor([idx])
+        area = (boxes[:,3]-boxes[:,1])*(boxes[:,2]-boxes[:,0])
+        iscrowd = torch.zeros((num_objs,), dtype=torch.int64)
+        
+        target["image_id"] = image_id
+        target["area"] = area
+        target["iscrowd"] = iscrowd
+
+        return_list = [path_name, img, target]
 
         return return_list
 

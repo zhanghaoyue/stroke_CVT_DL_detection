@@ -153,9 +153,11 @@ def train(**kwargs):
         train_slice_list = fold_list[str(k)]['train']
         train_set = train_Dataset(train_slice_list)
         train_data_num = len(train_set.img_list)
+        def collate_fn(batch):
+            return tuple(zip(*batch))
         train_batch = Data.DataLoader(dataset=train_set, batch_size=opt.train_bs, shuffle=True, \
                                       num_workers=opt.num_workers, worker_init_fn=worker_init_fn, \
-                                      drop_last=True, collate_fn=non_model.num_collate)
+                                      drop_last=True, collate_fn=collate_fn)
         print('load train data done, num =', train_data_num)
 
         # 定义 val set
@@ -163,7 +165,8 @@ def train(**kwargs):
         val_set = val_Dataset(val_slice_list)
         val_data_num = len(val_set.img_list)
         val_batch = Data.DataLoader(dataset=val_set, batch_size=opt.val_bs, shuffle=False,
-                                    num_workers=opt.test_num_workers, worker_init_fn=worker_init_fn)
+                                    num_workers=opt.test_num_workers, worker_init_fn=worker_init_fn,
+                                    collate_fn=collate_fn)
         print('load val data done, num =', val_data_num)
 
         # return
@@ -202,23 +205,16 @@ def train(**kwargs):
 
             for i, return_list in tqdm(enumerate(train_batch)):
                 case_name, x, y = return_list
-
-                im = Variable(x.type(torch.FloatTensor).cuda())
-                label = Variable(y.type(torch.FloatTensor).cuda())
+                im = list(image.cuda() for image in x)
+                label = [{k:v.cuda() for k,v in t.items()} for t in y]
 
                 if e == 0 and i == 0:
-                    print('input size:', im.shape)
+                    print('input size:', im[0].shape)
+
                 # forward
-                if opt.model[-4:] == 'rcnn':
-                    loss_dict = net(im, label)
-                    loss = sum(ls for ls in loss_dict.values())
-                else:
-                    classification_loss, regression_loss = net([im, label])
+                loss_dict = net(im, label)
+                loss = sum(ls for ls in loss_dict.values())
 
-                    classification_loss = classification_loss.mean()
-                    regression_loss = regression_loss.mean()
-
-                    loss = classification_loss + regression_loss
 
                 if bool(loss == 0):
                     continue
@@ -231,11 +227,8 @@ def train(**kwargs):
 
                 if i % 50 == 0:
                     print(
-                        'Ep: {} | Iter: {} | Cls loss: {:1.4f} | Reg loss: {:1.4f} | Running loss: {:1.4f}'.format(
-                            tmp_epoch, i, float(classification_loss), float(regression_loss), np.mean(loss_hist)))
-
-                del classification_loss
-                del regression_loss
+                        'Ep: {} | Iter: {} | Running loss: {:1.4f}'.format(
+                            tmp_epoch, i, np.mean(loss_hist)))
 
             # 清除缓存，减少训练中内存占用
             torch.cuda.empty_cache()
