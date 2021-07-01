@@ -160,13 +160,14 @@ def val(**kwargs):
                     all_slices[i] = case_name[0]
 
                     ##################### Get detections ######################
-                    im = Variable(x.type(torch.FloatTensor).cuda())
+                    im = list(image.cuda() for image in x)
 
                     # forward
-                    scores, labels, boxes = net(im)
-                    scores = scores.detach().cpu().numpy()
-                    labels = labels.detach().cpu().numpy()
-                    boxes = boxes.detach().cpu().numpy()
+                    outputs = net(im)
+                    scores = outputs[0]['scores'].detach().cpu().numpy()
+                    labels = outputs[0]['labels'].detach().cpu().numpy()
+                    boxes = outputs[0]['boxes'].detach().cpu().numpy()
+
 
                     indices = np.where(scores > opt.s_th)[0]
 
@@ -193,11 +194,11 @@ def val(**kwargs):
                     ###########################################################
 
                     ##################### Get annotations #####################
-                    annotations = y.detach().cpu().numpy()[0]
-                    all_annotations[i] = annotations[:,:4]
+                    annotations = y["boxes"].detach().cpu().numpy()
+                    all_annotations[i] = annotations
                     ###########################################################
 
-            np.savez(save_output_folder + 'K%s_output.npz'%k, case=all_slices, det=all_detections, anno=all_annotations)
+            # np.savez(save_output_folder + 'K%s_output.npz'%k, case=all_slices, det=all_detections, anno=all_annotations)
 
             false_positives = np.zeros((0,))
             true_positives = np.zeros((0,))

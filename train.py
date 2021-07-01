@@ -245,16 +245,17 @@ def train(**kwargs):
                     case_name, x, y = return_list
 
                     ##################### Get detections ######################
-                    im = Variable(x.type(torch.FloatTensor).cuda())
+                    im = list(image.cuda() for image in x)
 
                     if e == 0 and i == 0:
-                        print('input size:', im.shape)
+                        print('val input size:', im[0].shape)
 
                     # forward
-                    scores, labels, boxes = net(im)
-                    scores = scores.detach().cpu().numpy()
-                    labels = labels.detach().cpu().numpy()
-                    boxes = boxes.detach().cpu().numpy()
+                    outputs = net(im)
+
+                    scores = outputs[0]['scores'].detach().cpu().numpy()
+                    labels = outputs[0]['labels'].detach().cpu().numpy()
+                    boxes = outputs[0]['boxes'].detach().cpu().numpy()
 
                     indices = np.where(scores > opt.s_th)[0]
 
@@ -284,8 +285,8 @@ def train(**kwargs):
                     ###########################################################
 
                     ##################### Get annotations #####################
-                    annotations = y.detach().cpu().numpy()[0]
-                    all_annotations[i] = annotations[:, :4]
+                    annotations = y[0]["boxes"].detach().cpu().numpy()
+                    all_annotations[i] = annotations
                     ###########################################################
 
             false_positives = np.zeros((0,))

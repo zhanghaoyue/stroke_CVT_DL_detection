@@ -1,5 +1,8 @@
 from config import opt
 import torchvision
+from torchvision.models.detection.anchor_utils import AnchorGenerator
+from torchvision.models.detection.rpn import RPNHead
+from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 from . import model_resnet, model_resnet_new, model_timm_net
 
 
@@ -28,10 +31,17 @@ def get_model():
 
     elif opt.model[-4:] == 'rcnn':
         if opt.model == 'faster_rcnn':
-            net = torchvision.models.detection.fasterrcnn_resnet50_fpn(num_classes=opt.label_length, pretrained=opt.pre_train)
+            net = torchvision.models.detection.fasterrcnn_resnet50_fpn(pretrained=opt.pre_train, pretrained_backbone=True)
+            anchor_generator = AnchorGenerator(
+                sizes=tuple([(16,32,64,128,256,512) for _ in range(5)]),
+                aspect_ratios=tuple([(0.25,0.5,1.0,2.0) for _ in range(5)]))
+            net.rpn.anchor_generator = anchor_generator
+            net.rpn.head = RPNHead(256, anchor_generator.num_anchors_per_location()[0])
+            in_features = net.roi_heads.box_predictor.cls_score.in_features
+            net.roi_heads.box_predictor = FastRCNNPredictor(in_features, opt.label_length)
         elif opt.model == 'mask_rcnn':
             net = torchvision.models.detection.maskrcnn_resnet50_fpn(num_classes=opt.label_length, pretrained=opt.pre_train)
-
+            net.roi_heads.mask_roi_pool = None
     return net
 
 
