@@ -121,8 +121,11 @@ def val(**kwargs):
         val_slice_list = fold_list[str(k)]['val']
         val_set = val_Dataset(val_slice_list)
         val_data_num = len(val_set.img_list)
+        def collate_fn(batch):
+            return tuple(zip(*batch))
         val_batch = Data.DataLoader(dataset=val_set, batch_size=opt.val_bs, shuffle=False,
-                                    num_workers=opt.test_num_workers, worker_init_fn=worker_init_fn)
+                                    num_workers=opt.test_num_workers, worker_init_fn=worker_init_fn,
+                                    collate_fn=collate_fn)
         print('load val data done, num =', val_data_num)
 
         tmp_save_model_list = [each for each in save_model_list if each.startswith('K%s' % k)]
@@ -194,11 +197,11 @@ def val(**kwargs):
                     ###########################################################
 
                     ##################### Get annotations #####################
-                    annotations = y["boxes"].detach().cpu().numpy()
+                    annotations = y[0]["boxes"].detach().cpu().numpy()
                     all_annotations[i] = annotations
                     ###########################################################
 
-            # np.savez(save_output_folder + 'K%s_output.npz'%k, case=all_slices, det=all_detections, anno=all_annotations)
+            np.savez(save_output_folder + 'K%s_output.npz'%k, case=all_slices, det=all_detections, anno=all_annotations)
 
             false_positives = np.zeros((0,))
             true_positives = np.zeros((0,))
