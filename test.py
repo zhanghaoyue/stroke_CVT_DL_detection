@@ -200,8 +200,8 @@ def test(**kwargs):
                     all_annotations[i] = annotations
                     ###########################################################
 
-            # np.savez(save_output_folder + 'K%s_output.npz' % k, case=all_slices, det=all_detections,
-            #          anno=all_annotations)
+            np.savez(save_output_folder + 'K%s_output.npz' % k, case=all_slices, det=all_detections,
+                  anno=all_annotations)
 
             false_positives = np.zeros((0,))
             true_positives = np.zeros((0,))

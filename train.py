@@ -242,6 +242,7 @@ def train(**kwargs):
 
             with torch.no_grad():
                 for i, return_list in tqdm(enumerate(val_batch)):
+                    
                     case_name, x, y = return_list
 
                     ##################### Get detections ######################
@@ -293,8 +294,7 @@ def train(**kwargs):
             true_positives = np.zeros((0,))
             scores = np.zeros((0,))
             num_annotations = 0.0
-            import pdb
-            pdb.set_trace()
+
             for i in range(data_length):
                 detections = all_detections[i]
                 annotations = all_annotations[i]
