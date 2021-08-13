@@ -28,6 +28,10 @@ def get_img(img_path, path_name):
         tmp_data = [tmp_FL, tmp_FL, tmp_FL, tmp_BBOX]
     elif opt.sequence == 'ALL':
         tmp_data = [tmp_T1, tmp_T2, tmp_FL, tmp_BBOX]
+    elif opt.sequence == 'T1T2':
+        tmp_data = [tmp_T1, tmp_T2, tmp_T2, tmp_BBOX]
+    elif opt.sequence == 'T2FLAIR':
+        tmp_data = [tmp_T2, tmp_FL, tmp_FL, tmp_BBOX]
     else:
         raise Warning("wrong sequnece, please input T1, T2, FLAIR, or ALL")
     return tmp_data
