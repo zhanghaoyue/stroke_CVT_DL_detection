@@ -23,6 +23,7 @@ from net import model_tools
 
 import numpy as np
 
+from ensemble_boxes import non_maximum_weighted as nmw
 from tqdm import tqdm
 from pprint import pprint
 from copy import deepcopy
@@ -33,10 +34,9 @@ import warnings
 warnings.filterwarnings("ignore")
 
 import resource
-
+torch.multiprocessing.set_sharing_strategy('file_system')
 rlimit = resource.getrlimit(resource.RLIMIT_NOFILE)
 resource.setrlimit(resource.RLIMIT_NOFILE, (2000, rlimit[1]))
-
 
 # train 应该是一个不受任务类型，数据类型，网络结构影响的通用文件
 # 所有与上述内容相关的部分，都应该封装为模块
@@ -45,7 +45,7 @@ def train(**kwargs):
     # 基于输入参数进行配置修改
     kwargs, data_info_dict = non_model.read_kwargs(kwargs)
     # 参数全局化
-    opt.load_config('../config/all.txt')
+    opt.load_config('./all.txt')
     config_dict = opt._spec(kwargs)
 
     # stage 2 - 路径设定
@@ -86,21 +86,32 @@ def train(**kwargs):
         net = model_tools.get_model()
         net = net.cuda()
 
+        # for name, param in net.named_parameters():
+        #     print(name)
+        # #
         # print(net)
         # return
 
-        # #summary(net, (1,192,192))
-        # #return
-        #
-        if opt.eval == True:
-            net = net.eval()
-            a = torch.ones([8, 3, 448, 448])
-            a = Variable(a.type(torch.FloatTensor).cuda())
+        # print(net.state_dict())
+        # return
 
-            print(a.shape)
-            output = net(a)
-            print('in forward')
-            return
+        # summary(net, (1,192,192))
+        # return
+        #
+        # if opt.eval == True:
+        #     net = net.eval()
+        #
+        #
+        # return
+        #
+        #     return
+        #     a = torch.ones([8, 3, 448, 448])
+        #     a = Variable(a.type(torch.FloatTensor).cuda())
+        #
+        #     print(a.shape)
+        #     output = net(a)
+        #     print('in forward')
+        #     return
         # # print(output.shape)
         # return
         #
@@ -113,6 +124,7 @@ def train(**kwargs):
         #         print(M.shape)
         # #print(.shape)
         # return
+
 
         ###### 设置优化器相关参数 ######
         # 优化器
@@ -157,7 +169,7 @@ def train(**kwargs):
             return tuple(zip(*batch))
         train_batch = Data.DataLoader(dataset=train_set, batch_size=opt.train_bs, shuffle=True, \
                                       num_workers=opt.num_workers, worker_init_fn=worker_init_fn, \
-                                      drop_last=True, collate_fn=collate_fn)
+                                      drop_last=True, collate_fn = collate_fn)
         print('load train data done, num =', train_data_num)
 
         # 定义 val set
@@ -178,10 +190,11 @@ def train(**kwargs):
         lr_change = 0
 
         loss_hist = collections.deque(maxlen=500)
+        cls_loss_hist = collections.deque(maxlen=500)
 
         ###### Start Training ######
         for e in range(opt.epoch):
-            tmp_epoch = e + opt.start_epoch
+            tmp_epoch = e+opt.start_epoch
             print('====================== Folder %s Epoch %s ========================' % (k, tmp_epoch))
 
             # 当前 epoch 的 lr
@@ -189,7 +202,7 @@ def train(**kwargs):
 
             # 如果使用 cycle_save，在每个 cycle 开始时重置保存条件
             if opt.cycle_r > 0:
-                if e % (2 * opt.Tmax) == 0:
+                if e % (2*opt.Tmax) == 0:
                     best_net = None
                     best_metric_list = np.zeros((opt.label_length - 1))
                     best_metric = 0
@@ -198,62 +211,138 @@ def train(**kwargs):
             else:
                 if tmp_epoch > epoch_save + opt.gap_epoch:
                     break
-                if lr_change == 2:
+                if lr_change == 1:
                     break
 
-            net.train()
+            net = net.train()
+            if opt.cls_ratio != 0:
+                net.mode = 'cls'
+                for _ in range(opt.cls_ratio):
+                    for i, return_list in tqdm(enumerate(train_batch)):
+                        case_name, x, y = return_list
 
-            for i, return_list in tqdm(enumerate(train_batch)):
-                case_name, x, y = return_list
-                im = list(image.cuda() for image in x)
-                label = [{k:v.cuda() for k,v in t.items()} for t in y]
+                        im = list(image.cuda() for image in x)
+                        label = [{k: v.cuda() for k, v in t.items()} for t in y]
 
-                if e == 0 and i == 0:
-                    print('input size:', im[0].shape)
+                        if e == 0 and i == 0:
+                            print('input size:', im[0].shape)
 
-                # forward
-                loss_dict = net(im, label)
-                loss = sum(ls for ls in loss_dict.values())
+                        loss_dict = net(im, label)
+                        # return
+                        loss_cls = 0
+                        for loss_k, v in loss_dict.items():
+                            # print(loss_k)
+                            if loss_k.startswith('cls'):
+                                cls_loss_ratio = (2 ** (3 - int(loss_k.split('_')[-1])))
+                                loss_cls += (v * cls_loss_ratio)
+                        if bool(loss_cls == 0):
+                            continue
 
+                        optimizer.zero_grad()
+                        loss_cls.backward()
+                        #torch.nn.utils.clip_grad_norm_(net.parameters(), 0.1)
+                        optimizer.step()
+                        if loss_cls != 0:
+                            cls_loss_hist.append(float(loss_cls.item()))
 
-                if bool(loss == 0):
-                    continue
+                        if i % 50 == 0:
+                            print('Ep: {} | Iter: {} | Cls loss: {:1.4f} '.format(tmp_epoch, i, np.mean(cls_loss_hist)))
 
-                optimizer.zero_grad()
-                loss.backward()
-                torch.nn.utils.clip_grad_norm_(net.parameters(), 0.1)
-                optimizer.step()
-                loss_hist.append(float(loss))
+            if opt.cls_only != True:
+                net.mode = 'det'
+                for i, return_list in tqdm(enumerate(train_batch)):
+                    case_name, x, y = return_list
 
-                if i % 50 == 0:
-                    print(
-                        'Ep: {} | Iter: {} | Running loss: {:1.4f}'.format(
-                            tmp_epoch, i, np.mean(loss_hist)))
+                    im = list(image.cuda() for image in x)
+                    label = [{k: v.cuda() for k, v in t.items()} for t in y]
+
+                    if e == 0 and i == 0:
+                        print('input size:', im[0].shape)
+
+                    loss_dict = net(im, label)
+                    # return
+                    loss = 0
+                    loss_det = 0
+                    loss_cls = 0
+                    for loss_k, v in loss_dict.items():
+                        # print(loss_k)
+                        if loss_k.startswith('cls'):
+                            cls_loss_ratio = opt.cls_w / (2 ** (3 - int(loss_k.split('_')[-1])))
+                            loss += (v * cls_loss_ratio)
+                            loss_cls += (v * cls_loss_ratio)
+                        elif loss_k[-1] in ['0','1']:
+                            loss += 0.5 * v
+                        else:
+                            loss += v
+                            loss_det += v
+                            # return
+                    if bool(loss == 0):
+                        continue
+
+                    optimizer.zero_grad()
+                    loss.backward()
+                    torch.nn.utils.clip_grad_norm_(net.parameters(), 0.1)
+                    optimizer.step()
+                    loss_hist.append(float(loss_det.item()))
+                    if loss_cls != 0:
+                        cls_loss_hist.append(float(loss_cls.item()))
+
+                    if i % 50 == 0:
+                        print(
+                            'Ep: {} | Iter: {} | Det loss: {:1.4f} | Cls loss: {:1.4f} '.format(
+                                tmp_epoch, i, np.mean(loss_hist), np.mean(cls_loss_hist)))
+
+                    # if i == 100:
+                    #     break
 
             # 清除缓存，减少训练中内存占用
             torch.cuda.empty_cache()
 
             net = net.eval()
-            val_loss = 0
+            if opt.cls_only:
+                net.mode = 'cls'
+            else:
+                net.mode = 'det'
+
             data_length = val_data_num
+
+            val_label_list = []
+            val_pre_list = []
 
             all_detections = [None for j in range(data_length)]
             all_annotations = [None for j in range(data_length)]
 
             with torch.no_grad():
                 for i, return_list in tqdm(enumerate(val_batch)):
-                    
                     case_name, x, y = return_list
+                    ########################## Net Forward ####################
+                    im = list(image.cuda() for image in x)
+                    outputs = net(im)
+                    ###########################################################
+
+                    ##################### Get annotations #####################
+                    annotations = y[0]["boxes"].detach().cpu().numpy()
+                    all_annotations[i] = annotations
+                    ###########################################################
+
+                    ########################## Get CLS ########################
+                    if 'cls' in opt.model:
+                        if opt.cls_loss == 'ce':
+                            cls_out = F.softmax(outputs[0]['cls_out'].detach()).cpu().numpy()[-1]
+                        elif opt.cls_loss == 'bce':
+                            cls_out = F.sigmoid(outputs[0]['cls_out'].detach()).cpu().numpy()
+
+                        if len(annotations) != 0:
+                            val_label_list.append(1)
+                        else:
+                            val_label_list.append(0)
+                        val_pre_list.append(cls_out)
+
+                    if opt.cls_only:
+                        continue
+                    ###########################################################
 
                     ##################### Get detections ######################
-                    im = list(image.cuda() for image in x)
-
-                    if e == 0 and i == 0:
-                        print('val input size:', im[0].shape)
-
-                    # forward
-                    outputs = net(im)
-
                     scores = outputs[0]['scores'].detach().cpu().numpy()
                     labels = outputs[0]['labels'].detach().cpu().numpy()
                     boxes = outputs[0]['boxes'].detach().cpu().numpy()
@@ -280,95 +369,121 @@ def train(**kwargs):
                         all_detections[i] = image_detections[:, :-1]
                     else:
                         all_detections[i] = np.zeros((0, 5))
-
-                    # if all_detections[i].shape[0] != 0:
-                    #     print(all_detections[i])
                     ###########################################################
 
-                    ##################### Get annotations #####################
-                    annotations = y[0]["boxes"].detach().cpu().numpy()
-                    all_annotations[i] = annotations
-                    ###########################################################
+            if 'cls' in opt.model:
+                auc = non_model.compute_auc(val_label_list, val_pre_list)
+                print("AUC: ", auc.round(4))
 
-            false_positives = np.zeros((0,))
-            true_positives = np.zeros((0,))
-            scores = np.zeros((0,))
-            num_annotations = 0.0
-
-            for i in range(data_length):
-                detections = all_detections[i]
-                annotations = all_annotations[i]
-                num_annotations += annotations.shape[0]
-                detected_annotations = []
-
-                for d in detections:
-                    scores = np.append(scores, d[4])
-
-                    if annotations.shape[0] == 0:
-                        false_positives = np.append(false_positives, 1)
-                        true_positives = np.append(true_positives, 0)
-                        continue
-
-                    d_tensor = torch.tensor(d[:4][np.newaxis])
-                    a_tensor = torch.tensor(annotations)
-                    overlaps = box_iou(d_tensor, a_tensor).numpy()
-                    assigned_annotation = np.argmax(overlaps, axis=1)
-                    max_overlap = overlaps[0, assigned_annotation]
-
-                    if max_overlap >= opt.iou_th and assigned_annotation not in detected_annotations:
-                        false_positives = np.append(false_positives, 0)
-                        true_positives = np.append(true_positives, 1)
-                        detected_annotations.append(assigned_annotation)
-                    else:
-                        false_positives = np.append(false_positives, 1)
-                        true_positives = np.append(true_positives, 0)
-
-            if len(false_positives) == 0 and len(true_positives) == 0:
-                print('No detection')
-            else:
-                # sort by score
-                indices = np.argsort(-scores)
-                scores = scores[indices]
-                false_positives = false_positives[indices]
-                true_positives = true_positives[indices]
-
-                # compute false positives and true positives
-                false_positives = np.cumsum(false_positives)
-                true_positives = np.cumsum(true_positives)
-
-                # compute recall and precision
-                recall = true_positives / num_annotations
-                precision = true_positives / np.maximum(true_positives + false_positives, np.finfo(np.float64).eps)
-
-                # compute average precision
-                average_precision = non_model.compute_ap(recall, precision)
-
-                print('mAP: {}'.format(average_precision))
-                print("Precision: ", precision[-1])
-                print("Recall: ", recall[-1])
-
-                if average_precision > best_metric:
-                    best_metric = average_precision
+            if opt.cls_only:
+                if auc > best_metric:
+                    best_metric = auc
                     epoch_save = tmp_epoch
                     save_dict = {}
-                    save_dict['net'] = net
+                    save_dict['net'] = net.state_dict()
                     save_dict['config_dict'] = config_dict
-                    torch.save(save_dict, save_model_folder + 'K%s_%s_AP_%.4f_Pr_%.4f_Re_%.4f.pkl' %
-                               (k, str(epoch_save).rjust(3, '0'), best_metric, precision[-1], recall[-1]))
-
-                    info_dict = {
-                        'fp': false_positives.tolist(),
-                        'tp': true_positives.tolist(),
-                        'score': scores.tolist(),
-                        'anno': num_annotations
-                    }
-                    with open(save_info_folder + 'K%s_%s_AP_%.4f_Pr_%.4f_Re_%.4f.json' %
-                              (k, str(epoch_save).rjust(3, '0'), best_metric, precision[-1], recall[-1]), 'w') as f:
-                        json.dump(info_dict, f, indent=2)
+                    torch.save(save_dict, save_model_folder + 'K%s_%s_AUC_%.4f.pkl' %
+                                   (k, str(epoch_save).rjust(3,'0'), best_metric))
 
                     del save_dict
-                    del info_dict
                     print('====================== model save ========================')
+            else:
+                false_positives = np.zeros((0,))
+                true_positives = np.zeros((0,))
+                scores = np.zeros((0,))
+                num_annotations = 0.0
+
+                for i in range(data_length):
+                    detections = all_detections[i]
+                    annotations = all_annotations[i]
+                    num_annotations += annotations.shape[0]
+                    detected_annotations = []
+
+                    boxes_list = [detections[:, :4] / 448]
+                    scores_list = [detections[:, -1]]
+                    labels_list = np.ones_like(scores_list)
+
+                    iou_thr = 0.1
+                    skip_box_thr = 0.0001
+
+                    boxes, nms_scores, labels = nmw(boxes_list,
+                                                     scores_list,
+                                                     labels_list,
+                                                     iou_thr=iou_thr,
+                                                     skip_box_thr=skip_box_thr)
+
+                    boxes = boxes * 448
+                    nms_scores = nms_scores[:, np.newaxis]
+                    detections = np.concatenate([boxes, nms_scores], axis=1)
+
+                    for d in detections:
+                        scores = np.append(scores, d[4])
+
+                        if annotations.shape[0] == 0:
+                            false_positives = np.append(false_positives, 1)
+                            true_positives = np.append(true_positives, 0)
+                            continue
+
+                        d_tensor = torch.tensor(d[:4][np.newaxis])
+                        a_tensor = torch.tensor(annotations)
+                        overlaps = box_iou(d_tensor, a_tensor).numpy()
+                        assigned_annotation = np.argmax(overlaps, axis=1)
+                        max_overlap = overlaps[0, assigned_annotation]
+
+                        if max_overlap >= opt.iou_th and assigned_annotation not in detected_annotations:
+                            false_positives = np.append(false_positives, 0)
+                            true_positives = np.append(true_positives, 1)
+                            detected_annotations.append(assigned_annotation)
+                        else:
+                            false_positives = np.append(false_positives, 1)
+                            true_positives = np.append(true_positives, 0)
+
+                if len(false_positives) == 0 and len(true_positives) == 0:
+                    print('No detection')
+                else:
+                    # sort by score
+                    indices = np.argsort(-scores)
+                    scores = scores[indices]
+                    false_positives = false_positives[indices]
+                    true_positives = true_positives[indices]
+
+                    # compute false positives and true positives
+                    false_positives = np.cumsum(false_positives)
+                    true_positives = np.cumsum(true_positives)
+
+                    # compute recall and precision
+                    recall = true_positives / num_annotations
+                    precision = true_positives / np.maximum(true_positives + false_positives, np.finfo(np.float64).eps)
+
+                    # compute average precision
+                    average_precision = non_model.compute_ap(recall, precision)
+
+                    print('mAP: {}'.format(average_precision))
+                    print("Precision: ", precision[-1])
+                    print("Recall: ", recall[-1])
+
+                    if average_precision > best_metric:
+                        best_metric = average_precision
+                        epoch_save = tmp_epoch
+                        save_dict = {}
+                        save_dict['net'] = net.state_dict()
+                        save_dict['config_dict'] = config_dict
+                        torch.save(save_dict, save_model_folder + 'K%s_%s_AP_%.4f_Pr_%.4f_Re_%.4f.pkl' %
+                                       (k, str(epoch_save).rjust(3,'0'), best_metric, precision[-1], recall[-1]))
+
+                        info_dict = {
+                            'fp': false_positives.tolist(),
+                            'tp': true_positives.tolist(),
+                            'score': scores.tolist(),
+                            'anno': num_annotations
+                        }
+                        with open(save_info_folder + 'K%s_%s_AP_%.4f_Pr_%.4f_Re_%.4f.json' %
+                                       (k, str(epoch_save).rjust(3,'0'), best_metric, precision[-1], recall[-1]), 'w') as f:
+                            json.dump(info_dict, f, indent=2)
+
+                        del save_dict
+                        del info_dict
+                        print('====================== model save ========================')
 
             if opt.cos_lr == True:
                 scheduler.step()
@@ -382,13 +497,14 @@ def train(**kwargs):
             if before_lr != tmp_lr:
                 epoch_save = tmp_epoch
                 lr_change += 1
-                print('================== lr change to %.6f ==================' % before_lr)
+                print('================== lr change to %.6f =================='%before_lr)
 
             # 清除缓存，减少训练中内存占用
             torch.cuda.empty_cache()
-
 
 if __name__ == '__main__':
     import fire
 
     fire.Fire()
+    
+
