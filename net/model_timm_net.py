@@ -131,7 +131,9 @@ class Timm(nn.Module):
             anchors = self.anchors(img_batch)
             print('================anchors==============')
             print(anchors.shape)
-            return
+
+            return self.focalLoss(classification, regression, anchors, annotations)
+            # return
 
 
         regression = torch.cat([self.regressionModel(feature) for feature in features], dim=1)

@@ -121,11 +121,8 @@ def test(**kwargs):
         val_slice_list = fold_list
         val_set = val_Dataset(val_slice_list)
         val_data_num = len(val_set.img_list)
-        def collate_fn(batch):
-            return tuple(zip(*batch))
         val_batch = Data.DataLoader(dataset=val_set, batch_size=opt.val_bs, shuffle=False,
-                                    num_workers=opt.test_num_workers, worker_init_fn=worker_init_fn,
-                                    collate_fn=collate_fn)
+                                    num_workers=opt.test_num_workers, worker_init_fn=worker_init_fn)
         print('load val data done, num =', val_data_num)
 
         tmp_save_model_list = [each for each in save_model_list if each.startswith('K%s' % k)]
@@ -162,14 +159,13 @@ def test(**kwargs):
                     all_slices[i] = case_name[0]
 
                     ##################### Get detections ######################
-                    im = list(image.cuda() for image in x)
+                    im = Variable(x.type(torch.FloatTensor).cuda())
 
                     # forward
-                    outputs = net(im)
-
-                    scores = outputs[0]['scores'].detach().cpu().numpy()
-                    labels = outputs[0]['labels'].detach().cpu().numpy()
-                    boxes = outputs[0]['boxes'].detach().cpu().numpy()
+                    scores, labels, boxes = net(im)
+                    scores = scores.detach().cpu().numpy()
+                    labels = labels.detach().cpu().numpy()
+                    boxes = boxes.detach().cpu().numpy()
 
                     indices = np.where(scores > opt.s_th)[0]
 
@@ -196,12 +192,12 @@ def test(**kwargs):
                     ###########################################################
 
                     ##################### Get annotations #####################
-                    annotations = y[0]["boxes"].detach().cpu().numpy()
-                    all_annotations[i] = annotations
+                    annotations = y.detach().cpu().numpy()[0]
+                    all_annotations[i] = annotations[:,:4]
                     ###########################################################
 
             np.savez(save_output_folder + 'K%s_output.npz' % k, case=all_slices, det=all_detections,
-                  anno=all_annotations)
+                     anno=all_annotations)
 
             false_positives = np.zeros((0,))
             true_positives = np.zeros((0,))

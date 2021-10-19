@@ -62,7 +62,7 @@ iou_th = 0.3
 ########## common_config ##########
 
 **** hardware config ****
-gpu_idx = 0
+gpu_idx = 1
 *************************
 
 **** mode ****

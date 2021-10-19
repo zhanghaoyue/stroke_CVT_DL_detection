@@ -22,7 +22,7 @@ from make_dataset import train_Dataset, val_Dataset
 from net import model_tools
 
 import numpy as np
-from ensemble_boxes import non_maximum_weighted as nmw
+
 from tqdm import tqdm
 from pprint import pprint
 from copy import deepcopy
@@ -40,7 +40,7 @@ def val(**kwargs):
     # 基于输入参数进行配置修改
     kwargs, data_info_dict = non_model.read_kwargs(kwargs)
     # 参数全局化
-    opt.load_config('./all.txt')
+    opt.load_config('../config/all.txt')
     config_dict = opt._spec(kwargs)
 
     # stage 2 - 路径设定
@@ -121,11 +121,8 @@ def val(**kwargs):
         val_slice_list = fold_list[str(k)]['val']
         val_set = val_Dataset(val_slice_list)
         val_data_num = len(val_set.img_list)
-        def collate_fn(batch):
-            return tuple(zip(*batch))
         val_batch = Data.DataLoader(dataset=val_set, batch_size=opt.val_bs, shuffle=False,
-                                    num_workers=opt.test_num_workers, worker_init_fn=worker_init_fn,
-                                    collate_fn=collate_fn)
+                                    num_workers=opt.test_num_workers, worker_init_fn=worker_init_fn)
         print('load val data done, num =', val_data_num)
 
         tmp_save_model_list = [each for each in save_model_list if each.startswith('K%s' % k)]
@@ -137,7 +134,6 @@ def val(**kwargs):
             save_model_path = save_model_folder + save_model
             save_dict = torch.load(save_model_path, map_location=torch.device('cpu'))
             config_dict = save_dict['config_dict']
-            config_dict.pop('gpu_idx')
             config_dict.pop('kidx')
             config_dict.pop('path_img')
             config_dict.pop('cls_th')
@@ -147,24 +143,16 @@ def val(**kwargs):
             config_dict.pop('iou_th')
             config_dict['mode'] = 'test'
             opt._spec(config_dict)
-
-            net_dict = save_dict['net']
-            net = model_tools.get_model()
-            net.load_state_dict(net_dict)
+            net = save_dict['net']
             del save_dict
 
             net = net.cuda()
-            net.mode = 'det'
             net = net.eval()
-            # time.sleep(100)
 
             data_length = val_data_num
             all_slices = [None for j in range(data_length)]
             all_detections = [None for j in range(data_length)]
             all_annotations = [None for j in range(data_length)]
-
-            val_label_list = []
-            val_pre_list = []
 
             with torch.no_grad():
                 for i, return_list in tqdm(enumerate(val_batch)):
@@ -172,13 +160,13 @@ def val(**kwargs):
                     all_slices[i] = case_name[0]
 
                     ##################### Get detections ######################
-                    im = list(image.cuda() for image in x)
+                    im = Variable(x.type(torch.FloatTensor).cuda())
 
                     # forward
-                    outputs = net(im)
-                    scores = outputs[0]['scores'].detach().cpu().numpy()
-                    labels = outputs[0]['labels'].detach().cpu().numpy()
-                    boxes = outputs[0]['boxes'].detach().cpu().numpy()
+                    scores, labels, boxes = net(im)
+                    scores = scores.detach().cpu().numpy()
+                    labels = labels.detach().cpu().numpy()
+                    boxes = boxes.detach().cpu().numpy()
 
                     indices = np.where(scores > opt.s_th)[0]
 
@@ -205,27 +193,11 @@ def val(**kwargs):
                     ###########################################################
 
                     ##################### Get annotations #####################
-                    annotations = y[0]["boxes"].detach().cpu().numpy()
-                    all_annotations[i] = annotations
+                    annotations = y.detach().cpu().numpy()[0]
+                    all_annotations[i] = annotations[:,:4]
                     ###########################################################
 
-                    ##################### Get CLS #####################
-                    if 'cls' in opt.model:
-                        cls_out = outputs[0]['cls_out'].detach().cpu().numpy()
-                        if len(annotations) != 0:
-                            val_label_list.append(1)
-                        else:
-                            val_label_list.append(0)
-                        val_pre_list.append(cls_out)
-                    ###########################################################
-
-            del net
-            np.savez(save_output_folder + 'K%s_output.npz'%k,
-                     case=all_slices,
-                     det=all_detections,
-                     anno=all_annotations,
-                     cls_pre=val_pre_list,
-                     cls_label=val_label_list)
+            np.savez(save_output_folder + 'K%s_output.npz'%k, case=all_slices, det=all_detections, anno=all_annotations)
 
             false_positives = np.zeros((0,))
             true_positives = np.zeros((0,))
@@ -237,23 +209,6 @@ def val(**kwargs):
                 annotations = all_annotations[i]
                 num_annotations += annotations.shape[0]
                 detected_annotations = []
-
-                boxes_list = [detections[:, :4] / 448]
-                scores_list = [detections[:, -1]]
-                labels_list = np.ones_like(scores_list)
-
-                iou_thr = 0.1
-                skip_box_thr = 0.0001
-
-                boxes, nms_scores, labels = nmw(boxes_list,
-                                                scores_list,
-                                                labels_list,
-                                                iou_thr=iou_thr,
-                                                skip_box_thr=skip_box_thr)
-
-                boxes = boxes * 448
-                nms_scores = nms_scores[:, np.newaxis]
-                detections = np.concatenate([boxes, nms_scores], axis=1)
 
                 for d in detections:
                     scores = np.append(scores, d[4])
@@ -296,8 +251,24 @@ def val(**kwargs):
                 F1_score = (2*precision*recall) / (recall+precision)
                 average_precision = non_model.compute_ap(recall, precision)
 
+                # recall > 0.8
+                if recall[-1] > 0.8:
+
+                    indices = np.where(recall > 0.8)[0]
+                    scores = scores[indices]
+                    recall = recall[indices]
+                    precision = precision[indices]
+                    F1_score = F1_score[indices]
+                    F1_max_idx = np.argmax(F1_score)
+                else:
+                    F1_max_idx = -1
+
                 # output
                 print('mAP: %.4f'%average_precision)
+                print('Score TH: %.4f' % scores[F1_max_idx])
+                print('F1: %.4f' % F1_score[F1_max_idx])
+                print("Precision: %.4f"%precision[F1_max_idx])
+                print("Recall: %.4f"%recall[F1_max_idx])
 
 
 if __name__ == '__main__':
