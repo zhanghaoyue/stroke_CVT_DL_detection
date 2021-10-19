@@ -7,7 +7,7 @@
 """
 import cv2
 import numpy as np
-
+import pdb
 
 class GradCAM(object):
     """
@@ -34,9 +34,10 @@ class GradCAM(object):
         :param input_grad: tuple, input_grad[0]: None
                                    input_grad[1]: weight
                                    input_grad[2]: bias
-        :param output_grad:tuple,长度为1
+        :param output_grad:tuple,len 1
         :return:
         """
+        print("backward hook successful")
         self.gradient = output_grad[0]
 
     def _register_hook(self):
@@ -53,35 +54,34 @@ class GradCAM(object):
         """
 
         :param inputs: {"image": [C,H,W], "height": height, "width": width}
-        :param index: 第几个边框
+        :param index: 
         :return:
         """
         self.net.zero_grad()
-        output = self.net.inference([inputs])
-        print(output)
-        score = output[0]['instances'].scores[index]
-        proposal_idx = output[0]['instances'].indices[index]  # box来自第几个proposal
+
+        output = self.net(inputs)
+
+        score = output[0]['scores'][0]
+        # proposal_idx = output[0].indices[index]  
         score.backward()
 
-        gradient = self.gradient[proposal_idx].cpu().data.numpy()  # [C,H,W]
+        gradient = self.gradient[0].cpu().data.numpy()  # [C,H,W]
         weight = np.mean(gradient, axis=(1, 2))  # [C]
 
-        feature = self.feature[proposal_idx].cpu().data.numpy()  # [C,H,W]
+        feature = self.feature[0].cpu().data.numpy()  # [C,H,W]
 
         cam = feature * weight[:, np.newaxis, np.newaxis]  # [C,H,W]
         cam = np.sum(cam, axis=0)  # [H,W]
         cam = np.maximum(cam, 0)  # ReLU
 
-        # 数值归一化
+        # normalize
         cam -= np.min(cam)
         cam /= np.max(cam)
-        # resize to 224*224
-        box = output[0]['instances'].pred_boxes.tensor[index].detach().numpy().astype(np.int32)
-        x1, y1, x2, y2 = box
-        cam = cv2.resize(cam, (x2 - x1, y2 - y1))
+        # resize to box
+        box = output[0]['boxes'][0].detach().cpu().numpy().astype(np.int32)
+        cam = cv2.resize(cam, (box[2] - box[0], box[3] - box[1]))
 
-        class_id = output[0]['instances'].pred_classes[index].detach().numpy()
-        return cam, box, class_id
+        return cam, box
 
 
 class GradCamPlusPlus(GradCAM):
@@ -92,20 +92,20 @@ class GradCamPlusPlus(GradCAM):
         """
 
         :param inputs: {"image": [C,H,W], "height": height, "width": width}
-        :param index: 第几个边框
+        :param index: 
         :return:
         """
         self.net.zero_grad()
         output = self.net.inference([inputs])
         print(output)
         score = output[0]['instances'].scores[index]
-        proposal_idx = output[0]['instances'].indices[index]  # box来自第几个proposal
+        proposal_idx = output[0]['instances'].indices[index]  
         score.backward()
 
         gradient = self.gradient[proposal_idx].cpu().data.numpy()  # [C,H,W]
         gradient = np.maximum(gradient, 0.)  # ReLU
-        indicate = np.where(gradient > 0, 1., 0.)  # 示性函数
-        norm_factor = np.sum(gradient, axis=(1, 2))  # [C]归一化
+        indicate = np.where(gradient > 0, 1., 0.)  
+        norm_factor = np.sum(gradient, axis=(1, 2))  
         for i in range(len(norm_factor)):
             norm_factor[i] = 1. / norm_factor[i] if norm_factor[i] > 0. else 0.  # 避免除零
         alpha = indicate * norm_factor[:, np.newaxis, np.newaxis]  # [C,H,W]
@@ -118,7 +118,7 @@ class GradCamPlusPlus(GradCAM):
         cam = np.sum(cam, axis=0)  # [H,W]
         # cam = np.maximum(cam, 0)  # ReLU
 
-        # 数值归一化
+        # 
         cam -= np.min(cam)
         cam /= np.max(cam)
         # resize to box scale
