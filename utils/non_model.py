@@ -6,6 +6,7 @@ import json
 import random
 from copy import deepcopy
 import torch
+import sklearn.metrics as skmetrics
 
 from builtins import range
 import math
@@ -133,13 +134,15 @@ def num_collate(data):
     case_list = []
     img_list = []
     annot_list = []
+    slice_label_list = []
     batch_size = len(data)
 
     for tmp_data in data:
-        tmp_case, tmp_img, tmp_annot = tmp_data
+        tmp_case, tmp_img, tmp_annot, tmp_sl = tmp_data
         case_list.append(tmp_case)
         img_list.append(tmp_img)
         annot_list.append(tmp_annot)
+        slice_label_list.append(tmp_sl)
 
     max_num_annots = max(annot.shape[0] for annot in annot_list)
 
@@ -153,8 +156,9 @@ def num_collate(data):
 
     img_batch = torch.tensor(np.array(img_list))
     annot_batch = torch.tensor(annot_padded)
+    slice_label_batch  = torch.tensor(np.array(slice_label_list))
 
-    return case_list, img_batch, annot_batch
+    return case_list, img_batch, annot_batch, slice_label_batch
 
 
 ################################## For Metric ##################################
@@ -184,3 +188,8 @@ def compute_ap(recall, precision):
     ap = np.sum((mrec[i + 1] - mrec[i]) * mpre[i + 1])
     return ap
 
+def Find_Optimal_Cutoff(target, predicted):
+    fpr, tpr, threshold = skmetrics.roc_curve(target, predicted)
+    best_threshold_idx = np.argmax(tpr-fpr)
+    best_threhold = threshold[best_threshold_idx]
+    return best_threhold

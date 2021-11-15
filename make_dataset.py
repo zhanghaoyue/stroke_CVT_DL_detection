@@ -35,7 +35,12 @@ class train_Dataset:
         annot = in_model.get_bbox(bbox_array)
         annot = annot.astype('float32')
 
-        return_list = [path_name, img, annot]
+        if np.sum(annot) > 0:
+            slice_label = 1
+        else:
+            slice_label = 0
+
+        return_list = [path_name, img, annot,slice_label]
 
         return return_list
 
@@ -62,8 +67,12 @@ class val_Dataset:
         bbox_array = img_dict['BBOX']
         annot = in_model.get_bbox(bbox_array)
         annot = annot.astype('float32')
+        if np.sum(annot) > 0:
+            slice_label = 1
+        else:
+            slice_label = 0
 
-        return_list = [path_name, img, annot]
+        return_list = [path_name, img, annot, slice_label]
 
         return return_list
 

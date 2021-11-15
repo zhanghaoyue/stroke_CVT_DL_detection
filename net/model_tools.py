@@ -1,5 +1,5 @@
-
 from config import opt
+import torchvision.models as tmodels
 from . import model_resnet, model_resnet_new, model_timm_net
 
 def get_model():
@@ -23,7 +23,17 @@ def get_model():
             net = model_resnet.resnet101(num_classes=opt.label_length, pretrained=opt.pre_train)
         elif opt.model == 'r152':
             net = model_resnet.resnet152(num_classes=opt.label_length, pretrained=opt.pre_train)
-
+    elif opt.model[0] == 'c':
+        if opt.model == 'c18':
+            net = tmodels.resnet18(num_classes=1, pretrained=opt.pre_train)
+        elif opt.model == 'c34':
+            net = tmodels.resnet34(num_classes=1, pretrained=opt.pre_train)
+        elif opt.model == 'c50':
+            net = tmodels.resnet50(num_classes=1, pretrained=opt.pre_train)
+        elif opt.model == 'c101':
+            net = tmodels.resnet101(num_classes=1, pretrained=opt.pre_train)
+        elif opt.model == 'c152':
+            net = tmodels.resnet152(num_classes=1, pretrained=opt.pre_train)
     return net
 
 def get_result():

@@ -46,7 +46,7 @@ MC_block = 'CO'
 NL_mode = 'embedded'
 
 ### train
-pre_train = True
+pre_train = False
 fix_BN = True
 lth = 0.4
 hth = 0.5
@@ -72,7 +72,7 @@ eval = False
 
 **** train & val config ****
 # train set
-epoch = 36
+epoch = 100
 start_epoch = 1
 gap_epoch = 10
 
